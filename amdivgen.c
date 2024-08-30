@@ -1,6 +1,6 @@
 //-----------------------------LICENSE NOTICE------------------------------------
-//  Copyright (C) 2022 Néstor Gracia (https://github.com/nestornillo)
-//  Copyright (C) 2022 CPCtelera's Telegram Group (@FranGallegoBR)
+//  Copyright (C) 2024 Néstor Gracia (https://github.com/nestornillo)
+//  Copyright (C) 2024 CPCtelera's Telegram Group (@FranGallegoBR)
 //
 //  This program is free software: you can redistribute it and/or modify
 //  it under the terms of the GNU Lesser General Public License as published by
@@ -16,7 +16,7 @@
 //  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //-------------------------------------------------------------------------------
 
-//  Amdivgen 1.0
+//  Amdivgen 1.1
 //  Amstrad division function generator
 //
 //   This program generates routines to calculate the division (integer
@@ -41,7 +41,7 @@
 
 
 
-//  Amdivgen 1.0
+//  Amdivgen 1.1
 //  Generador de rutinas de división para Amstrad.
 //
 //
@@ -74,7 +74,7 @@
 #define MAXPOWER2 24
 
 enum asmLines{ _ld_ba =1, _rra, _srl_a, _add_b, _ret, _and_fc, _and_f8, _and_f0, _and_e0, _and_c0, _and_80, _rlca, _rrca, _rla, _and_01, _and_03, _and_07, _and_0f,_xor_a};
-enum paramHeader{ _only_use_a, _destroys_b};
+enum paramregistersUsed{ _only_use_a, _destroys_b};
 int resultLines[50];
 int numResultLines=0;
 int resultLinesTemp[50];
@@ -83,85 +83,128 @@ int sizeResult=0;
 int speedResult=0;
 
 
-void measureCode(void) {
-  sizeResult=0;
-  speedResult=0;
-  for (int i=0;i<numResultLines;i++) {
-    switch(resultLines[i]){
-      case _ret:
-        sizeResult+=1; speedResult+=3; break;
-      case _ld_ba: case _rra: case _add_b: case _rlca: case _rrca: case _rla: case _xor_a:
-        sizeResult+=1; speedResult+=1; break;
-      case _srl_a: case _and_fc: case _and_f8: case _and_f0: case _and_e0: case _and_c0: case _and_80: case _and_01: case _and_03: case _and_07: case _and_0f:
-        sizeResult+=2; speedResult+=2; break;
-      default:
-        printf(";;---ERROR measureCode---\n");
+/////////////////////
+// PRINTING FUNCTIONS
+/////////////////////
+
+// Prints help
+void printHelp(void){
+  printf("\n    Amdivgen 1.1         Amstrad division function generator\n\n");
+  printf(" This program generates routines for dividing an 8-bit number by\n");
+  printf(" a constant value.\n");
+  printf("\nUsage:\n");
+  printf(" amdivgen num\n");
+  printf("       Creates a function that divides the number contained in A register\n");
+  printf("       by the number passed as a parameter\n");
+  printf("       i.e.:   amdivgen 3.1416     creates routine for A = A / 3.1416\n\n");
+  printf(" amdivgen num1 num2\n");
+  printf("       Creates a routine which multiplies the input value by the fraction\n");
+  printf("       num1/num2  (where num2 is a power of 2, and num1<=num2)\n");
+  printf("       i.e.:   amdivgen 17 256     creates routine for A = A * (17/256)\n\n");
+  printf(" amdivgen 0 num\n");
+  printf("       Shows approximations used to create the division function by a\n");
+  printf("       given number\n");
+  printf("       i.e.:   amdivgen 0 10       shows approximations to A = A / 10\n\n");
+  printf(" amdivgen -num\n");
+  printf("       Creates a division function by num, using always approximation\n");
+  printf("       by a fraction\n");
+  printf("       i.e.:   amdivgen -121       creates routine for A = A / 121\n\n");
+}
+
+// Prints an array showing the powers of two that composes a given number
+void showPowers(int num) {
+  int powtwo;
+  powtwo=1<<MAXPOWER2;
+  for (int j=0;j<=MAXPOWER2;j++) {
+    if (num>powtwo-1) {
+      printf("%d ",MAXPOWER2-j);
+      num-=powtwo;
     }
+    powtwo=powtwo/2;
   }
 }
 
-
-void addLine(int asmInstruction) {
-  resultLines[numResultLines]=asmInstruction;
-  numResultLines++;
+// Prints diferent fraction multiplication approximations for a given divider.
+// Shows test ('OK' or first number that fails) and decompositions.
+void showInfo(float n) {
+  int dividerBase2;
+  int div;
+  int value;
+  int correct;
+  printf (" Amdivgen 1.1         Approximations to 1/%g\n",n);
+  printf ("     approx        test      decomposition into powers of 2\n",n);
+  for (dividerBase2=0;dividerBase2<=MAXPOWER2;dividerBase2++) {
+    div=1<<dividerBase2;
+    if (n==div) printf("       1/%-8g   OK    %8d:%-2d        1:0\n",n,div,dividerBase2);
+    value=(div/n)+1;
+    printf ("%8d/%-8d ",value,div);
+    correct=1;
+    for (int j=0;j<256;j++){
+      if ( (int)((j*1000)/(n*1000)) != ((value*j)/div) ) {
+        correct=0;
+        printf("Err:%-3d ", j);
+        j=256;
+      }
+    }
+    if (correct==1) printf("  OK    ");
+    printf("%8d:%-2d %8d:",div,dividerBase2,value);
+    showPowers(value);
+    printf("\n");
+  }
 }
 
-
-void addLineTemp(int asmInstruction) {
-  resultLinesTemp[numResultLinesTemp]=asmInstruction;
-  numResultLinesTemp++;
-}
-
-
-void printHeaderMidNumber(float num) {
-  int doublenum;
-  doublenum=num*2;
-  if (num!=(int)num) doublenum++;
+// Header printing functions
+void printDivisionBy(float num){
   printf(";;\n");
   printf(";; Division by %g\n", num);
   printf(";;\n;; Returns the integer quotient of dividing\n", num);
   printf(";; the input value by %g \n",num);
   printf(";;\n;;   A = A / %g \n;;\n",num);
-  printf(";;   Input: A register\n;;  Output: A register\n;;\n");
-  printf(";;         Size: 13 bytes\n");
-  printf(";; Average time: %0.2f microseconds\n",(doublenum/(float)128)+10);
-  printf(";;   Worst time: 12 microseconds\n");
-  printf(";;    Best time: 10 microseconds\n");
-  printf(";;\n;; Function created with Amdivgen 1.0\n");
+}
+void printMultiplicationBy(float num,int divisor){
+  printf(";;\n");
+  printf(";; Multiplication by fraction %d/%d\n",(int)num,divisor);
+  printf(";;\n;; Returns the integer part of multiplying\n", num);
+  printf(";; the input value by the fraction %d/%d\n",(int)num,divisor);
+  printf(";;\n;;   A = A * ( %d / %d )\n;;\n",(int)num,divisor);
+}
+void printCredits(void){
+  printf(";;\n;; Function created with Amdivgen 1.1\n");
   printf(";; https://github.com/nestornillo/amdivgen\n;;\n");
+}
+void printHeaderNumberBigger85Smaller128(float num) {
+  int doublenum;
+  doublenum=num*2;
+  if (num!=(int)num) doublenum++;
+  printDivisionBy(num);
+  printf(";;   Input: A register\n;;  Output: A register\n;;\n");
+  printf(";;         Size: 12 bytes\n");
+  printf(";; Average time: %0.2f microseconds\n",(doublenum/(float)256)+10);
+  printf(";;   Worst time: 11 microseconds\n");
+  printf(";;    Best time: 10 microseconds\n");
+  printCredits();
   printf("division_by_%g::\n", num);
 }
-
-
 void printHeader(float num,int size,int speed,int registers,int divisor) {
-  printf(";;\n");
   if (divisor!=0) {
-    printf(";; Multiplication by fraction %d/%d\n",(int)num,divisor);
-    printf(";;\n;; Returns the integer part of multiplying\n", num);
-    printf(";; the input value by the fraction %d/%d\n",(int)num,divisor);
-    printf(";;\n;;   A = A * ( %d / %d )\n;;\n",(int)num,divisor);
+    printMultiplicationBy(num,divisor);
     printf(";;   Input: A register\n;;  Output: A register\n");
     if (registers==_destroys_b) printf(";;\n;; Destroys B register\n");
     printf(";;\n;; %d bytes / %d microseconds\n",size,speed);
-    printf(";;\n;; Function created with Amdivgen 1.0\n");
-    printf(";; https://github.com/nestornillo/amdivgen\n;;\n");
+    printCredits();
     printf("fraction_%d_%d::\n", (int)num,divisor);
   }
   else {
-    printf(";; Division by %g\n", num);
-    printf(";;\n;; Returns the integer quotient of dividing\n", num);
-    printf(";; the input value by %g \n",num);
-    printf(";;\n;;   A = A / %g\n;;\n",num);
+    printDivisionBy(num);
     printf(";;   Input: A register\n;;  Output: A register\n");
     if (registers==_destroys_b) printf(";;\n;; Destroys B register\n");
     printf(";;\n;; %d bytes / %d microseconds\n",size,speed);
-    printf(";;\n;; Function created with Amdivgen 1.0\n");
-    printf(";; https://github.com/nestornillo/amdivgen\n;;\n");
+    printCredits();
     printf("division_by_%g::\n", num);
   }
 }
 
-
+// Code printing function
 void printlines(void) {
   for (int i=0;i<numResultLines;i++) {
     switch(resultLines[i]){
@@ -190,6 +233,42 @@ void printlines(void) {
 }
 
 
+////////////////////////////
+// CODE GENERATION FUNCTIONS
+////////////////////////////
+
+// Add one instruction to the code
+void addLine(int asmInstruction) {
+  resultLines[numResultLines]=asmInstruction;
+  numResultLines++;
+}
+
+// Add one instruction to temp code
+void addLineTemp(int asmInstruction) {
+  resultLinesTemp[numResultLinesTemp]=asmInstruction;
+  numResultLinesTemp++;
+}
+
+
+// measure size and speed of generated code
+void measureCode(void) {
+  sizeResult=0;
+  speedResult=0;
+  for (int i=0;i<numResultLines;i++) {
+    switch(resultLines[i]){
+      case _ret:
+      sizeResult+=1; speedResult+=3; break;
+      case _ld_ba: case _rra: case _add_b: case _rlca: case _rrca: case _rla: case _xor_a:
+      sizeResult+=1; speedResult+=1; break;
+      case _srl_a: case _and_fc: case _and_f8: case _and_f0: case _and_e0: case _and_c0: case _and_80: case _and_01: case _and_03: case _and_07: case _and_0f:
+      sizeResult+=2; speedResult+=2; break;
+      default:
+      printf(";;---ERROR measureCode---\n");
+    }
+  }
+}
+
+// Optimize function by changing consecutive srla to a more compact equivalent form
 void optimizeCode(void) {
   int srlaInARow;
   int modnextline;
@@ -200,9 +279,9 @@ void optimizeCode(void) {
     switch(resultLines[i]) {
       case _rra:
         for (int j=i;resultLines[j+1]==_srl_a;j++) {
-          srlaInARow++;
+          srlaInARow++; // count following srlas
         }
-        switch(srlaInARow) {
+        switch(srlaInARow) { // optimizations for 1 rra + n srla
           case 4: addLineTemp(_rla);addLineTemp(_rla);addLineTemp(_rla);addLineTemp(_rla);addLineTemp(_and_0f);modnextline=4;break;
           case 5: addLineTemp(_rla);addLineTemp(_rla);addLineTemp(_rla);addLineTemp(_and_07);modnextline=5;break;
           case 6: addLineTemp(_rla);addLineTemp(_rla);addLineTemp(_and_03);modnextline=6;break;
@@ -213,9 +292,9 @@ void optimizeCode(void) {
         break;
       case _srl_a:
         for (int j=i;resultLines[j]==_srl_a;j++) {
-          srlaInARow++;
+          srlaInARow++;// count srlas
         }
-        switch(srlaInARow) {
+        switch(srlaInARow) { // optimizations for n srla
           case 3: addLineTemp(_and_f8);addLineTemp(_rrca);addLineTemp(_rrca);addLineTemp(_rrca);modnextline=2;break;
           case 4: addLineTemp(_and_f0);addLineTemp(_rrca);addLineTemp(_rrca);addLineTemp(_rrca);addLineTemp(_rrca);modnextline=3;break;
           case 5: addLineTemp(_and_e0);addLineTemp(_rlca);addLineTemp(_rlca);addLineTemp(_rlca);modnextline=4;break;
@@ -229,15 +308,15 @@ void optimizeCode(void) {
       default:
         addLineTemp(resultLines[i]);
     }
-    i+=modnextline;
+    i+=modnextline; // skip substituted lines
   }
-  numResultLines=0;
+  numResultLines=0; // reset result counter
   for (int i=0;i<numResultLinesTemp;i++) {
-    addLine(resultLinesTemp[i]);
+    addLine(resultLinesTemp[i]); // copy temp to result
   }
 }
 
-
+// Create code for a multiplication by a fraction
 void generateCode(float num,int i,int div,int divpow) {
   int difference;
   int arrrayPowersOf2[MAXPOWER2+1];
@@ -246,7 +325,7 @@ void generateCode(float num,int i,int div,int divpow) {
   powtwo=1<<MAXPOWER2;
   for (int j=0;j<MAXPOWER2+1;j++) {
     if (i>powtwo-1) {
-      arrrayPowersOf2[numpowers]=MAXPOWER2-j;
+      arrrayPowersOf2[numpowers]=MAXPOWER2-j; // fill arrrayPowersOf2[] with the decomposition of i into powers of two
       numpowers++;
       i-=powtwo;
     }
@@ -254,14 +333,14 @@ void generateCode(float num,int i,int div,int divpow) {
   }
   for (int j=numpowers-1;j>0;j--) {
     difference=arrrayPowersOf2[j-1]-arrrayPowersOf2[j];
-    if ( ( (j==numpowers-1)&&(difference>7) ) || (difference>8) )  numpowers=j;
+    if ( ( (j==numpowers-1)&&(difference>7) ) || (difference>8) )  numpowers=j; // discard smaller powers if difference is too big
   }
   if ((divpow-arrrayPowersOf2[0])>8) {
-    addLine(_xor_a);
+    addLine(_xor_a); // if divider is too big, result is always zero
     numpowers=1;
   }
   else {
-    if (numpowers>1) addLine(_ld_ba);
+    if (numpowers>1) addLine(_ld_ba); // store input in b if it's needed later (if there's more than 1 power of two)
     for (int j=numpowers-1;j+1>0;j--) {
       if (j!=0){
         difference=arrrayPowersOf2[j-1]-arrrayPowersOf2[j];
@@ -270,14 +349,14 @@ void generateCode(float num,int i,int div,int divpow) {
           difference--;
         }
         else {
-          addLine(_rra);
+          addLine(_rra); // rotate right using carry of previous 'add b' as bit 7
           difference--;
         }
         while (difference>0) {
-          addLine(_srl_a);
+          addLine(_srl_a);  // add srlas until next power
           difference--;
         }
-        addLine(_add_b);
+        addLine(_add_b);  // add input value
       }
     }
     difference=divpow-arrrayPowersOf2[0]-1;
@@ -288,7 +367,7 @@ void generateCode(float num,int i,int div,int divpow) {
       if (!((numpowers==1)&&(divpow==arrrayPowersOf2[0])))  addLine(_srl_a);
     }
     while (difference>0) {
-      addLine(_srl_a);
+      addLine(_srl_a); // add srlas according to remaining difference
       difference--;
     }
   }
@@ -305,6 +384,7 @@ void generateCode(float num,int i,int div,int divpow) {
 }
 
 
+// Find a fraction multiplication equivalent to the desired division
 void findApproximation(float i) {
   int dividerBase2;
   int div;
@@ -314,24 +394,24 @@ void findApproximation(float i) {
     div=1<<dividerBase2;
     value=(div/i)+1;
     correct=1;
-    for (int j=0;j<256;j++) {
+    for (int j=0;j<256;j++) { // test approximation for all 256 numbers
       if ( (int)((j*1000)/(i*1000)) != ((value*j)/div) ) {
-        correct=0;
+        correct=0;  // if an error found mark as incorrect
         j=256;
       }
     }
-    if (i==div) {
+    if (i==div) {  //if number is a power of two
        generateCode(div,1,0,dividerBase2);
-       dividerBase2=200;
+       dividerBase2=200;  // exit for loop
     }
-    if (correct==1) {
+    if (correct==1) { // approximation works
        generateCode(i,value,0,dividerBase2);
        dividerBase2=200;
     }
   }
 }
 
-
+// if a number is a power of two, returns exponent+1. If not, returns 0.
 int isPowerOf2(int num) {
   int div,dividerBase2;
   for (dividerBase2=0;dividerBase2<=MAXPOWER2;dividerBase2++) {
@@ -341,40 +421,40 @@ int isPowerOf2(int num) {
   return 0;
 }
 
-
-void bigNumber(float num) {
+// Creates a division function for numbers bigger than 128 up to 255
+void numberBigger128UpTo255(float num) {
   int integernum;
   integernum=num;
-  if (integernum!=num) integernum++;
-  printHeader(num,6,8,_only_use_a,0);
-  printf("add #%-3d  ; [2]\n", 256-integernum);
-  printf("ld a,#0   ; [2]\n");
-  printf("rla       ; [1]\n");
+  if (integernum!=num) integernum++;  // adjust for non-integers
+  printHeader(num,5,7,_only_use_a,0);
+  printf("cp #%-3d   ; [2]\n", integernum);
+  printf("sbc a     ; [1]\n");
+  printf("inc a     ; [1]\n");
   printf("ret       ; [3]\n");
 }
 
-
-void midNumber(float num) {
+// Creates a division function for numbers bigger than 85 and smaller than 128
+void numberBigger85Smaller128(float num) {
   int integernum;
   int doublenum;
   integernum=num;
   if (integernum!=num) integernum++;
   doublenum=num*2;
   if (doublenum!=num*2) doublenum++;
-  printHeaderMidNumber(num);
+  printHeaderNumberBigger85Smaller128(num);
   printf("cp #%-3d   ; [2]\n", doublenum);
-  printf("jr nc,greater_than_%-3d ; [2/3]\n",doublenum-1);
-  printf("add #%-3d  ; [2]\n", 256-integernum);
-  printf("ld a,#0   ; [2]\n");
-  printf("rla       ; [1]\n");
+  printf("jr nc,more_than_%-3d ; [2/3]\n",doublenum-1);
+  printf("cp #%-3d   ; [2]\n", integernum);
+  printf("sbc a     ; [1]\n");
+  printf("inc a     ; [1]\n");
   printf("ret       ; [3]\n");
-  printf("greater_than_%d:\n",doublenum-1);
+  printf("more_than_%d:\n",doublenum-1);
   printf("ld a,#2   ; [2]\n");
   printf("ret       ; [3]\n");
 }
 
-
-void lessThanMidNumber(float num) {
+// Creates a division function for numbers bigger than 64 up to 85
+void numberBigger64UpTo85(float num) {
   int integernum;
   int doublenum;
   int triplenum;
@@ -384,95 +464,27 @@ void lessThanMidNumber(float num) {
   if (doublenum!=num*2) doublenum++;
   triplenum=num*3;
   if (triplenum!=num*3) triplenum++;
-  printHeader(num,17,13,_only_use_a,0);
+  printHeader(num,15,12,_only_use_a,0);
   printf("cp #%-3d   ; [2]\n", doublenum);
   printf("jr c,less_than_%-3d ; [2/3]\n",doublenum);
-  printf("add #%-3d  ; [2]\n", 256-triplenum);
-  printf("ld a,#2   ; [2]\n");
-  printf("adc #0    ; [2]\n");
+  printf("cp #%-3d   ; [2]\n", triplenum);
+  printf("sbc a     ; [1]\n");
+  printf("add #3    ; [2]\n");
   printf("ret       ; [3]\n");
   printf("less_than_%d:\n",doublenum);
-  printf("add #%-3d  ; [2]\n", 256-integernum);
-  printf("ld a,#0   ; [2]\n");
-  printf("rla       ; [1]\n");
+  printf("cp #%-3d   ; [2]\n", integernum);
+  printf("sbc a     ; [1]\n");
+  printf("inc a     ; [1]\n");
   printf("ret       ; [3]\n");
 }
 
-
-void showPowers(int num) {
-  int arrrayPowersOf2[MAXPOWER2];
-  int powtwo;
-  int numpowers=0;
-  powtwo=1<<MAXPOWER2;
-  for (int j=0;j<=MAXPOWER2;j++) {
-    if (num>powtwo-1) {
-      arrrayPowersOf2[numpowers]=MAXPOWER2-j;
-      numpowers++;
-      num-=powtwo;
-    }
-    powtwo=powtwo/2;
-  }
-  for (int j=0;j<numpowers;j++) {
-    printf("%d ",arrrayPowersOf2[j]);
-  }
-}
-
-
-void showInfo(float n) {
-  int dividerBase2;
-  int div;
-  int value;
-  int correct;
-  printf (" Amdivgen 1.0           approximations to 1/%g\n",n);
-  printf ("     approx        test      decomposition into powers of 2\n",n);
-  for (dividerBase2=0;dividerBase2<=MAXPOWER2;dividerBase2++) {
-    div=1<<dividerBase2;
-    if (n==div) {
-      printf("       1/%-8g   OK    %8d:%-2d        1:0\n",n,div,dividerBase2);
-    }
-    value=(div/n)+1;
-    printf ("%8d/%-8d ",value,div);
-    correct=1;
-    for (int j=0;j<256;j++){
-      if ( (int)((j*1000)/(n*1000)) != ((value*j)/div) ) {
-        correct=0;
-        printf("Err:%-3d ", j);
-        j=256;
-      }
-    }
-    if (correct==1) printf("  OK    ");
-    printf("%8d:%-2d %8d:",div,dividerBase2,value);
-    showPowers(value);
-    printf("\n");
-  }
-}
-
-
+// Main function
 int main(int argc, char **argv) {
   float num;
   float param1;
   float param2;
   if (argc==1) {
-    printf("\n    Amdivgen 1.0         Amstrad division function generator\n\n");
-    printf(" This program generates routines for dividing an 8-bit number by\n");
-    printf(" a constant value.\n");
-    printf("\nUsage:\n");
-    printf(" amdivgen num\n");
-    printf("       Creates a function that divides the number contained in A register\n");
-    printf("       by the number passed as a parameter\n");
-    printf("       i.e.:   amdivgen 3.1416     creates routine for A = A / 3.1416\n\n");
-    printf(" amdivgen num1 num2\n");
-    printf("       Creates a routine which multiplies the input value by the fraction\n");
-    printf("       num1/num2  (where num2 is a power of 2, and num1<=num2)\n");
-    printf("       i.e.:   amdivgen 17 256     creates routine for A = A * (17/256)\n\n");
-    printf(" amdivgen 0 num\n");
-    printf("       Shows approximations used to create the division function by a\n");
-    printf("       given number\n");
-    printf("       i.e.:   amdivgen 0 10       shows approximations to A = A / 10\n\n");
-    printf(" amdivgen -num\n");
-    printf("       Creates a division function by num, using always approximation\n");
-    printf("       by a fraction\n");
-    printf("       i.e.:   amdivgen -121       creates routine for A = A / 121\n\n");
+    printHelp();
     return 1;
   }
   param1=atof(argv[1]);
@@ -480,7 +492,7 @@ int main(int argc, char **argv) {
     param2=atof(argv[2]);
     if (param1==0) {
       if (param2<1) {
-        printf("Divisor must be greater or equal to 1.\n");
+        printf("Divisor must be greater than or equal to 1.\n");
         return 1;
       }
       showInfo(param2);
@@ -492,7 +504,7 @@ int main(int argc, char **argv) {
         return 1;
       }
       if (param1>param2) {
-        printf("Divisor must be greater or equal than dividend.\n");
+        printf("Divisor must be greater than or equal to dividend.\n");
         return 1;
       }
       if ((param1!=atoi(argv[1]))||(param1<0)) {
@@ -508,17 +520,17 @@ int main(int argc, char **argv) {
       findApproximation(-num);
     }
     else if (num<1) {
-      printf("Divisor must be greater or equal to 1.\n");
+      printf("Divisor must be greater than or equal to 1.\n");
       return 1;
     }
     else if ((num>128)&&(num<=255)) {
-      bigNumber(num);
+      numberBigger128UpTo255(num);
     }
     else if ((num>85)&&(num<128)) {
-      midNumber(num);
+      numberBigger85Smaller128(num);
     }
     else if ((num>64)&&(num<=85)) {
-      lessThanMidNumber(num);
+      numberBigger64UpTo85(num);
     }
     else {
       findApproximation(num);}
